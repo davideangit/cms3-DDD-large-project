@@ -64,6 +64,24 @@
       pointer-events: none;
     }
 
+    #enter-cardboard {
+      position: fixed;
+      z-index: 11;
+      right: max(1rem, env(safe-area-inset-right));
+      bottom: max(1rem, env(safe-area-inset-bottom));
+      border: 0;
+      border-radius: 999px;
+      padding: 0.85rem 1.15rem;
+      color: #111;
+      background: #fff;
+      box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.45);
+      font: 700 0.95rem/1 system-ui, sans-serif;
+    }
+
+    body.cardboard-mode #enter-cardboard {
+      display: none;
+    }
+
   </style>
 
   <script>
@@ -76,31 +94,38 @@
       headset.
     */
     AFRAME.registerComponent('cardboard-stereo', {
+      schema: {
+        eyeSeparation: {default: 0.064}
+      },
+
       init: function () {
         const scene = this.el;
         const rotateNotice = document.getElementById('rotate-phone');
+        const enterButton = document.getElementById('enter-cardboard');
         const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         const viewportSize = new THREE.Vector2();
 
         if (isPhone) rotateNotice.classList.add('is-phone');
 
-        // This page is dedicated to Cardboard: always render two eye views.
-        this.active = true;
+        /*
+          StereoCamera owns two real perspective cameras. `aspect = 0.5` is
+          Three.js's supported way to derive an eye projection from A-Frame's
+          full-canvas camera. Each eye is also translated by half the IPD.
+        */
         this.stereoCamera = new THREE.StereoCamera();
-        this.stereoCamera.eyeSep = 0.064; // 64 mm Cardboard V2 lens baseline.
+        this.stereoCamera.aspect = 0.5;
+        this.stereoCamera.eyeSep = this.data.eyeSeparation;
 
         const renderStereo = (object, camera) => {
           const renderer = this.renderer;
-          if (!this.active) {
+          if (renderer.xr.isPresenting || !camera.isPerspectiveCamera) {
             this.renderNormally(object, camera);
             return;
           }
 
           /*
-            setViewport() and setScissor() take logical renderer pixels; Three.js
-            applies devicePixelRatio when it talks to WebGL. Drawing-buffer
-            pixels would therefore be scaled twice on a high-DPI phone and can
-            push the right-eye viewport completely off the canvas.
+            Three.js viewport coordinates are logical pixels. Using drawing-
+            buffer pixels here would apply devicePixelRatio twice on phones.
           */
           renderer.getSize(viewportSize);
           const width = viewportSize.x;
@@ -112,26 +137,15 @@
             return;
           }
 
-          /*
-            Three.js builds the left/right projection matrices from the source
-            camera. A-Frame has set that camera to the *full* canvas aspect
-            ratio, so temporarily use one eye's aspect before producing the
-            stereo pair. Setting StereoCamera.aspect does nothing: it is not
-            used by Three.js's StereoCamera implementation.
-          */
-          const eyeAspect = eyeWidth / height;
-          const priorAspect = camera.aspect;
-          const needsAspectUpdate = camera.isPerspectiveCamera && priorAspect !== eyeAspect;
           const priorAutoClear = renderer.autoClear;
-
-          if (needsAspectUpdate) {
-            camera.aspect = eyeAspect;
-            camera.updateProjectionMatrix();
-          }
+          const priorFocus = camera.focus;
 
           try {
             object.updateMatrixWorld();
             if (camera.parent === null) camera.updateMatrixWorld();
+
+            // Parallel optical axes avoid an arbitrary fixed convergence plane.
+            camera.focus = Number.POSITIVE_INFINITY;
             this.stereoCamera.update(camera);
 
             renderer.autoClear = false;
@@ -147,14 +161,11 @@
             renderer.setScissor(eyeWidth, 0, width - eyeWidth, height);
             this.renderNormally(object, this.stereoCamera.cameraR);
           } finally {
+            camera.focus = priorFocus;
             renderer.setScissorTest(false);
             renderer.setViewport(0, 0, width, height);
+            renderer.setScissor(0, 0, width, height);
             renderer.autoClear = priorAutoClear;
-
-            if (needsAspectUpdate) {
-              camera.aspect = priorAspect;
-              camera.updateProjectionMatrix();
-            }
           }
         };
 
@@ -165,9 +176,26 @@
           this.renderer.render = renderStereo;
         };
 
+        const enterCardboard = () => {
+          document.body.classList.add('cardboard-mode');
+
+          const fullscreen = document.documentElement.requestFullscreen ||
+            document.documentElement.webkitRequestFullscreen;
+          if (fullscreen) {
+            Promise.resolve(fullscreen.call(document.documentElement, {navigationUI: 'hide'}))
+              .then(() => screen.orientation?.lock?.('landscape'))
+              .catch(() => {
+                // Stereo still works when a browser does not grant fullscreen.
+              });
+          }
+        };
+
         scene.addEventListener('render-target-loaded', installStereoRenderer);
+        enterButton.addEventListener('click', enterCardboard);
         installStereoRenderer();
+
         this.removeListeners = () => {
+          enterButton.removeEventListener('click', enterCardboard);
           scene.removeEventListener('render-target-loaded', installStereoRenderer);
           if (this.renderer && this.renderNormally) this.renderer.render = this.renderNormally;
         };
@@ -181,9 +209,10 @@
 </head>
 <body>
   <div id="rotate-phone" aria-live="polite">
-    <span>Rotate your Galaxy S22 Ultra to landscape before placing it in the TopMaxions viewer.</span>
+    <span>Rotate your Galaxy S22 Ultra to landscape, then enter Cardboard before placing it in the TopMaxions viewer.</span>
   </div>
   <div id="eye-divider" aria-hidden="true"></div>
+  <button id="enter-cardboard" type="button">Enter Cardboard</button>
 
   <a-scene
     cardboard-stereo
@@ -204,12 +233,14 @@
       </template>
     </a-assets>
 
-    <a-entity id="cameraRig" position="10 1.6 60" movement-controls="fly:true; speed:0.1;">
+    <!-- Keep the subject about 5 m away so a physical 64 mm IPD creates
+         useful binocular disparity without exaggerating the eye spacing. -->
+    <a-entity id="cameraRig" position="10 1.6 15" movement-controls="fly:true; speed:0.1;">
       <a-entity
         camera
         position="0 0 0"
-        camera="fov: 80; near: 0.05; far: 200"
-        wasd-controls="acceleration:25;fly:true;verticalFlySpeed:0.1;"
+        camera="fov: 80; near: 0.05; far: 50"
+        wasd-controls="acceleration:25;fly:true;"
         look-controls="magicWindowTrackingEnabled: true; touchEnabled: true"
       >
         <a-sphere class="head" visible="false" random-color></a-sphere>
@@ -218,17 +249,14 @@
 
     <a-entity
       gltf-model="exported_model.glb"
-      position="10 0 10"
+      position="10 1.44 10"
       rotation="90 0 0"
-      scale="12 12 12"
+      scale="1.2 1.2 1.2"
     ></a-entity>
 
     <a-entity environment="preset: default"></a-entity>
     <a-entity light="type:ambient; intensity:2.0"></a-entity>
 
-    <!-- Add basic VR controllers for hand input -->
-    <a-entity laser-controls="hand: left"></a-entity>
-    <a-entity laser-controls="hand: right"></a-entity>
   </a-scene>
 
 </body>
