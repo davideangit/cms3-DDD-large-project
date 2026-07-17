@@ -87,7 +87,6 @@
         // This page is dedicated to Cardboard: always render two eye views.
         this.active = true;
         this.stereoCamera = new THREE.StereoCamera();
-        this.stereoCamera.aspect = 0.5;
         this.stereoCamera.eyeSep = 0.064; // 64 mm Cardboard V2 lens baseline.
 
         const renderStereo = (object, camera) => {
@@ -107,27 +106,50 @@
             return;
           }
 
+          /*
+            Three.js builds the left/right projection matrices from the source
+            camera. A-Frame has set that camera to the *full* canvas aspect
+            ratio, so temporarily use one eye's aspect before producing the
+            stereo pair. Setting StereoCamera.aspect does nothing: it is not
+            used by Three.js's StereoCamera implementation.
+          */
+          const eyeAspect = eyeWidth / height;
+          const priorAspect = camera.aspect;
+          const needsAspectUpdate = camera.isPerspectiveCamera && priorAspect !== eyeAspect;
           const priorAutoClear = renderer.autoClear;
-          object.updateMatrixWorld();
-          if (camera.parent === null) camera.updateMatrixWorld();
-          this.stereoCamera.update(camera);
 
-          renderer.autoClear = false;
-          renderer.setScissorTest(false);
-          renderer.clear(true, true, true);
-          renderer.setScissorTest(true);
+          if (needsAspectUpdate) {
+            camera.aspect = eyeAspect;
+            camera.updateProjectionMatrix();
+          }
 
-          renderer.setViewport(0, 0, eyeWidth, height);
-          renderer.setScissor(0, 0, eyeWidth, height);
-          this.renderNormally(object, this.stereoCamera.cameraL);
+          try {
+            object.updateMatrixWorld();
+            if (camera.parent === null) camera.updateMatrixWorld();
+            this.stereoCamera.update(camera);
 
-          renderer.setViewport(eyeWidth, 0, width - eyeWidth, height);
-          renderer.setScissor(eyeWidth, 0, width - eyeWidth, height);
-          this.renderNormally(object, this.stereoCamera.cameraR);
+            renderer.autoClear = false;
+            renderer.setScissorTest(false);
+            renderer.clear(true, true, true);
+            renderer.setScissorTest(true);
 
-          renderer.setScissorTest(false);
-          renderer.setViewport(0, 0, width, height);
-          renderer.autoClear = priorAutoClear;
+            renderer.setViewport(0, 0, eyeWidth, height);
+            renderer.setScissor(0, 0, eyeWidth, height);
+            this.renderNormally(object, this.stereoCamera.cameraL);
+
+            renderer.setViewport(eyeWidth, 0, width - eyeWidth, height);
+            renderer.setScissor(eyeWidth, 0, width - eyeWidth, height);
+            this.renderNormally(object, this.stereoCamera.cameraR);
+          } finally {
+            renderer.setScissorTest(false);
+            renderer.setViewport(0, 0, width, height);
+            renderer.autoClear = priorAutoClear;
+
+            if (needsAspectUpdate) {
+              camera.aspect = priorAspect;
+              camera.updateProjectionMatrix();
+            }
+          }
         };
 
         const installStereoRenderer = () => {
