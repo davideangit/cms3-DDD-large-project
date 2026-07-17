@@ -80,7 +80,7 @@
         const scene = this.el;
         const rotateNotice = document.getElementById('rotate-phone');
         const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-        const renderSize = new THREE.Vector2();
+        const viewportSize = new THREE.Vector2();
 
         if (isPhone) rotateNotice.classList.add('is-phone');
 
@@ -96,10 +96,16 @@
             return;
           }
 
-          renderer.getDrawingBufferSize(renderSize);
-          const width = Math.floor(renderSize.x);
-          const height = Math.floor(renderSize.y);
-          const eyeWidth = Math.floor(width / 2);
+          /*
+            setViewport() and setScissor() take logical renderer pixels; Three.js
+            applies devicePixelRatio when it talks to WebGL. Drawing-buffer
+            pixels would therefore be scaled twice on a high-DPI phone and can
+            push the right-eye viewport completely off the canvas.
+          */
+          renderer.getSize(viewportSize);
+          const width = viewportSize.x;
+          const height = viewportSize.y;
+          const eyeWidth = width / 2;
 
           if (!width || !height || !eyeWidth) {
             this.renderNormally(object, camera);
