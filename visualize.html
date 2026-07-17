@@ -51,23 +51,6 @@
       #rotate-phone.is-phone { display: grid; }
     }
 
-    #enter-cardboard {
-      position: fixed;
-      z-index: 11;
-      right: max(1rem, env(safe-area-inset-right));
-      bottom: max(1rem, env(safe-area-inset-bottom));
-      border: 0;
-      border-radius: 999px;
-      padding: 0.8rem 1.1rem;
-      color: #111;
-      background: #fff;
-      box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.4);
-      font: 700 0.95rem/1 system-ui, sans-serif;
-    }
-
-    body.cardboard-mode #enter-cardboard {
-      display: none;
-    }
   </style>
 
   <script>
@@ -83,29 +66,15 @@
       init: function () {
         const scene = this.el;
         const rotateNotice = document.getElementById('rotate-phone');
-        const button = document.getElementById('enter-cardboard');
         const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         const renderSize = new THREE.Vector2();
 
         if (isPhone) rotateNotice.classList.add('is-phone');
 
-        this.active = false;
+        // This page is dedicated to Cardboard: always render two eye views.
+        this.active = true;
         this.stereoCamera = new THREE.StereoCamera();
         this.stereoCamera.eyeSep = 0.064; // 64 mm Cardboard V2 lens baseline.
-
-        const lockLandscape = () => {
-          if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('landscape').catch(() => {
-              // Browsers may require fullscreen before allowing this lock.
-            });
-          }
-        };
-
-        const unlockOrientation = () => {
-          if (screen.orientation && screen.orientation.unlock) {
-            screen.orientation.unlock();
-          }
-        };
 
         const renderStereo = (object, camera) => {
           const renderer = this.renderer;
@@ -158,23 +127,11 @@
           this.renderer.render = renderStereo;
         };
 
-        const enterCardboard = () => {
-          this.active = true;
-          document.body.classList.add('cardboard-mode');
-          lockLandscape();
-          document.documentElement.requestFullscreen?.().catch(() => {
-            // Fullscreen is optional; side-by-side stereo rendering still works.
-          });
-        };
-
-        button.addEventListener('click', enterCardboard);
         scene.addEventListener('render-target-loaded', installStereoRenderer);
         installStereoRenderer();
         this.removeListeners = () => {
-          button.removeEventListener('click', enterCardboard);
           scene.removeEventListener('render-target-loaded', installStereoRenderer);
           if (this.renderer && this.renderNormally) this.renderer.render = this.renderNormally;
-          unlockOrientation();
         };
       },
 
@@ -186,9 +143,8 @@
 </head>
 <body>
   <div id="rotate-phone" aria-live="polite">
-    <span>Rotate your Galaxy S22 Ultra to landscape, then enter VR before placing it in the TopMaxions viewer.</span>
+    <span>Rotate your Galaxy S22 Ultra to landscape before placing it in the TopMaxions viewer.</span>
   </div>
-  <button id="enter-cardboard" type="button">Enter Cardboard mode</button>
 
   <a-scene
     cardboard-stereo
