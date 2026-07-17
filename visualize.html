@@ -51,6 +51,19 @@
       #rotate-phone.is-phone { display: grid; }
     }
 
+    /* A physical separation between the two full-height Cardboard viewports. */
+    #eye-divider {
+      position: fixed;
+      z-index: 9;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 6px;
+      margin-left: -3px;
+      background: #000;
+      pointer-events: none;
+    }
+
   </style>
 
   <script>
@@ -74,11 +87,12 @@
         // This page is dedicated to Cardboard: always render two eye views.
         this.active = true;
         this.stereoCamera = new THREE.StereoCamera();
+        this.stereoCamera.aspect = 0.5;
         this.stereoCamera.eyeSep = 0.064; // 64 mm Cardboard V2 lens baseline.
 
         const renderStereo = (object, camera) => {
           const renderer = this.renderer;
-          if (!this.active || renderer.xr.isPresenting) {
+          if (!this.active) {
             this.renderNormally(object, camera);
             return;
           }
@@ -93,11 +107,9 @@
             return;
           }
 
-          const priorAspect = camera.aspect;
           const priorAutoClear = renderer.autoClear;
-          camera.aspect = eyeWidth / height;
-          camera.updateProjectionMatrix();
-          camera.updateMatrixWorld();
+          object.updateMatrixWorld();
+          if (camera.parent === null) camera.updateMatrixWorld();
           this.stereoCamera.update(camera);
 
           renderer.autoClear = false;
@@ -116,8 +128,6 @@
           renderer.setScissorTest(false);
           renderer.setViewport(0, 0, width, height);
           renderer.autoClear = priorAutoClear;
-          camera.aspect = priorAspect;
-          camera.updateProjectionMatrix();
         };
 
         const installStereoRenderer = () => {
@@ -145,6 +155,7 @@
   <div id="rotate-phone" aria-live="polite">
     <span>Rotate your Galaxy S22 Ultra to landscape before placing it in the TopMaxions viewer.</span>
   </div>
+  <div id="eye-divider" aria-hidden="true"></div>
 
   <a-scene
     cardboard-stereo
